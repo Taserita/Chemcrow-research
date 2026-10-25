@@ -75,7 +75,6 @@ def test_badinp(singlemol):
 
 # FuncGroups
 
-
 def test_fg_single(singlemol):
     tool = FuncGroups()
     out = tool(singlemol)

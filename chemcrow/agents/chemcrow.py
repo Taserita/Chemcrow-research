@@ -7,8 +7,16 @@ from langchain.callbacks.streaming_stdout import StreamingStdOutCallbackHandler
 from pydantic import ValidationError
 from rmrkl import ChatZeroShotAgent, RetryAgentExecutor
 
-from .prompts import FORMAT_INSTRUCTIONS, QUESTION_PROMPT, REPHRASE_TEMPLATE, SUFFIX
+from .output_parser import ChemCrowOutputParser
+from .prompts import (
+    FORMAT_INSTRUCTIONS,
+    QUESTION_PROMPT,
+    REPHRASE_TEMPLATE,
+    RESEARCH_QUESTION_PROMPT,
+    SUFFIX,
+)
 from .tools import make_tools
+from chemcrow.tools.solution import SolutionDesign, tool_catalog
 
 
 def _make_llm(model, temp, api_key, streaming: bool = False):
@@ -45,7 +53,7 @@ class ChemCrow:
         verbose=True,
         streaming: bool = True,
         openai_api_key: Optional[str] = None,
-        api_keys: dict = {},
+        api_keys: Optional[dict] = None,
         local_rxn: bool = False,
     ):
         """Initialize ChemCrow agent."""
@@ -57,9 +65,15 @@ class ChemCrow:
             raise ValueError("Invalid OpenAI API key")
 
         if tools is None:
+            api_keys = dict(api_keys or {})
             api_keys["OPENAI_API_KEY"] = openai_api_key
             tools_llm = _make_llm(tools_model, temp, openai_api_key, streaming)
             tools = make_tools(tools_llm, api_keys=api_keys, local_rxn=local_rxn, verbose=verbose)
+
+        research_only = {tool.name for tool in tools} == {"ScientificResearch", "SolutionDesign"}
+        for tool in tools:
+            if isinstance(tool, SolutionDesign) and not research_only:
+                tool.available_tools = tool_catalog(tools)
 
         # Initialize agent
         self.agent_executor = RetryAgentExecutor.from_agent_and_tools(
@@ -69,7 +83,8 @@ class ChemCrow:
                 tools,
                 suffix=SUFFIX,
                 format_instructions=FORMAT_INSTRUCTIONS,
-                question_prompt=QUESTION_PROMPT,
+                question_prompt=RESEARCH_QUESTION_PROMPT if research_only else QUESTION_PROMPT,
+                output_parser=ChemCrowOutputParser(),
             ),
             verbose=True,
             max_iterations=max_iterations,
@@ -82,5 +97,8 @@ class ChemCrow:
         self.rephrase_chain = chains.LLMChain(prompt=rephrase, llm=self.llm)
 
     def run(self, prompt):
+        for tool in self.agent_executor.tools:
+            if isinstance(tool, SolutionDesign):
+                tool.user_question = prompt
         outputs = self.agent_executor({"input": prompt})
         return outputs["output"]

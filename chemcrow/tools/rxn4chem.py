@@ -2,6 +2,7 @@
 
 import abc
 import ast
+import os
 import re
 from time import sleep
 from typing import Optional
@@ -26,15 +27,17 @@ class RXN4Chem(BaseTool):
     base_url: str = "https://rxn.res.ibm.com"
     sleep_time: int = 5
 
-    def __init__(self, rxn4chem_api_key):
+    def __init__(self, rxn4chem_api_key, project_id=None):
         """Init object."""
         super().__init__()
 
+        project_id = project_id or os.getenv("RXN4CHEM_PROJECT_ID")
+        if not project_id:
+            raise ValueError("Set RXN4CHEM_PROJECT_ID to a project owned by your RXN account.")
         self.rxn4chem_api_key = rxn4chem_api_key
         self.rxn4chem = RXN4ChemistryWrapper(
-            api_key=self.rxn4chem_api_key, base_url=self.base_url
+            api_key=self.rxn4chem_api_key, base_url=self.base_url, project_id=project_id
         )
-        self.rxn4chem.project_id = "655b7b760fb57c001f25dc91"
 
     @abc.abstractmethod
     def _run(self, smiles: str):  # type: ignore
@@ -133,9 +136,9 @@ class RXNRetrosynthesis(RXN4Chem):
     )
     openai_api_key: str = ""
 
-    def __init__(self, rxn4chem_api_key, openai_api_key):
+    def __init__(self, rxn4chem_api_key, openai_api_key, project_id=None):
         """Init object."""
-        super().__init__(rxn4chem_api_key)
+        super().__init__(rxn4chem_api_key, project_id=project_id)
         self.openai_api_key = openai_api_key
 
     def _run(self, target: str) -> str:
@@ -276,8 +279,8 @@ class RXNRetrosynthesis(RXN4Chem):
             "to describe the synthesis, as if you were giving instructions for"
             "a recipe. Use only the substances, quantities, temperatures and "
             "in general any action mentioned in the json file. This is your "
-            "only source of information, do not make up anything else. Also, "
-            "add 15mL of DCM as a solvent in the first step. If you ever need "
+            "only source of information. Do not add solvents, quantities, or "
+            "conditions absent from the data. State missing details as unknown. If you need "
             'to refer to the json file, refer to it as "(by) the tool". '
             "However avoid references to it. \nFor this task, give as many "
             f"details as possible.\n {str(json)}"

@@ -2,14 +2,10 @@ import ast
 import os
 
 import pytest
-from dotenv import load_dotenv
 from langchain.chat_models import ChatOpenAI
 
 from chemcrow.tools.search import PatentCheck, Scholar2ResultLLM
 from chemcrow.utils import split_smiles
-
-load_dotenv()
-
 
 @pytest.fixture
 def questions():
@@ -59,6 +55,7 @@ def patentcheck():
     return PatentCheck()
 
 
+@pytest.mark.integration
 def test_patentcheck(singlemol, patentcheck):
     patented = patentcheck._run(singlemol)
     patented = ast.literal_eval(patented)
@@ -66,6 +63,7 @@ def test_patentcheck(singlemol, patentcheck):
     assert patented[singlemol] == "Patented"
 
 
+@pytest.mark.integration
 def test_patentcheck_molset(molset1, patentcheck):
     patented = patentcheck._run(molset1)
     patented = ast.literal_eval(patented)
@@ -80,6 +78,7 @@ def test_patentcheck_iupac(single_iupac, patentcheck):
     assert patented == "Invalid SMILES string"
 
 
+@pytest.mark.integration
 def test_patentcheck_not(choline, patentcheck):
     patented = patentcheck._run(choline)
     patented = ast.literal_eval(patented)

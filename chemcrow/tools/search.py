@@ -4,7 +4,7 @@ import re
 import langchain
 import molbloom
 import paperqa
-import paperscraper
+from rdkit import Chem
 from langchain import SerpAPIWrapper
 from langchain.base_language import BaseLanguageModel
 from langchain.tools import BaseTool
@@ -12,11 +12,12 @@ from langchain.embeddings.openai import OpenAIEmbeddings
 from pypdf.errors import PdfReadError
 
 from chemcrow.utils import is_multiple_smiles, split_smiles
+from chemcrow.paperscraper_compat import search_papers
 
 
 def paper_scraper(search: str, pdir: str = "query", semantic_scholar_api_key: str = None) -> dict:
     try:
-        return paperscraper.search_papers(
+        return search_papers(
             search,
             pdir=pdir,
             semantic_scholar_api_key=semantic_scholar_api_key,
@@ -75,8 +76,12 @@ def scholar2result_llm(llm, query, k=5, max_sources=2, openai_api_key=None, sema
 class Scholar2ResultLLM(BaseTool):
     name = "LiteratureSearch"
     description = (
-        "Useful to answer questions that require technical "
-        "knowledge. Ask a specific question."
+        "Use this tool to answer a specific technical or scientific question "
+        "when only a direct, plain-text explanation is needed. "
+        "This tool does NOT generate or save structured evidence files. "
+        "Do NOT use it for systematic literature research, identifying "
+        "research gaps, or generating evidence-based hypotheses. "
+        "For these tasks, use ScientificResearch instead."
     )
     llm: BaseLanguageModel = None
     openai_api_key: str = None 
@@ -140,22 +145,31 @@ class PatentCheck(BaseTool):
     description = "Input SMILES, returns if molecule is patented. You may also input several SMILES, separated by a period."
 
     def _run(self, smiles: str) -> str:
-        """Checks if compound is patented. Give this tool only one SMILES string"""
         if is_multiple_smiles(smiles):
             smiles_list = split_smiles(smiles)
         else:
             smiles_list = [smiles]
-        try:
-            output_dict = {}
-            for smi in smiles_list:
-                r = molbloom.buy(smi, canonicalize=True, catalog="surechembl")
-                if r:
-                    output_dict[smi] = "Patented"
-                else:
-                    output_dict[smi] = "Novel"
-            return str(output_dict)
-        except:
-            return "Invalid SMILES string"
+
+        output_dict = {}
+
+        for smi in smiles_list:
+            # Check SMILES validity
+            if Chem.MolFromSmiles(smi) is None:
+                return "Invalid SMILES string"
+
+            try:
+                result = molbloom.buy(
+                    smi,
+                    canonicalize=True,
+                    catalog="surechembl"
+                )
+            except Exception as e:
+                return f"Patent lookup failed: {e}"
+
+            output_dict[smi] = "Patented" if result else "Novel"
+
+        # Important: outside the for loop
+        return str(output_dict)
 
     async def _arun(self, query: str) -> str:
         """Use the tool asynchronously."""

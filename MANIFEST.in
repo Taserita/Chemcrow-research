@@ -1,0 +1,10 @@
+include LICENSE README.md RELEASE_REVIEW.md .env.example dev-requirements.txt pytest.ini run_agent.py
+recursive-include chemcrow *.py *.csv *.yml Dockerfile .dockerignore *.md
+recursive-include tests *.py
+recursive-include docs *.md
+recursive-include assets *.png
+prune local_papers
+prune papers
+prune runs
+prune research_outputs
+global-exclude *.py[cod] .env *.pdf *.PDF *.log *.tmp *.part *.pt *.onnx *.hdf5

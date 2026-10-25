@@ -1,17 +1,23 @@
 import re
 
 import requests
-from rdkit import Chem, DataStructs
-from rdkit.Chem import AllChem
+from rdkit import Chem, DataStructs, rdBase
+from rdkit.Chem import rdFingerprintGenerator
+
+from chemcrow.input_utils import normalize_molecule_input
+
+_MORGAN_GENERATOR = rdFingerprintGenerator.GetMorganGenerator(radius=2, fpSize=2048)
 
 
 def is_smiles(text):
+    # This is a format probe: names and lookup errors are expected non-SMILES.
+    # Do not let RDKit interpret trailing prose as a molecule name or log it.
+    if not isinstance(text, str) or not text.strip() or re.search(r"\s", text.strip()):
+        return False
     try:
-        m = Chem.MolFromSmiles(text, sanitize=False)
-        if m is None:
-            return False
-        return True
-    except:
+        with rdBase.BlockLogs():
+            return Chem.MolFromSmiles(text.strip()) is not None
+    except (ValueError, TypeError, RuntimeError):
         return False
 
 
@@ -52,8 +58,8 @@ def tanimoto(s1, s2):
     try:
         mol1 = Chem.MolFromSmiles(s1)
         mol2 = Chem.MolFromSmiles(s2)
-        fp1 = AllChem.GetMorganFingerprintAsBitVect(mol1, 2, nBits=2048)
-        fp2 = AllChem.GetMorganFingerprintAsBitVect(mol2, 2, nBits=2048)
+        fp1 = _MORGAN_GENERATOR.GetFingerprint(mol1)
+        fp2 = _MORGAN_GENERATOR.GetFingerprint(mol2)
         return DataStructs.TanimotoSimilarity(fp1, fp2)
     except (TypeError, ValueError, AttributeError):
         return "Error: Not a valid SMILES string"
@@ -63,6 +69,7 @@ def pubchem_query2smiles(
     query: str,
     url: str = "https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/name/{}/{}",
 ) -> str:
+    query = normalize_molecule_input(query)
     if is_smiles(query):
         if not is_multiple_smiles(query):
             return query
@@ -77,13 +84,21 @@ def pubchem_query2smiles(
     data = r.json()
     # return the SMILES string
     try:
-        smi = data["PropertyTable"]["Properties"][0]["IsomericSMILES"]
-    except KeyError:
-        return "Could not find a molecule matching the text. One possible cause is that the input is incorrect, input one molecule at a time."
+        properties = data["PropertyTable"]["Properties"][0]
+        smi = properties.get("SMILES") or properties.get("IsomericSMILES")
+    except (KeyError, IndexError, TypeError):
+        raise ValueError(
+            "Could not resolve a molecular structure. Provide one specific compound name "
+            "or CAS number from the source; a chemical class such as heteropoly acid "
+            "does not identify a unique molecule."
+        ) from None
+    if not is_smiles(smi):
+        raise ValueError("Could not resolve a valid SMILES structure from the lookup response.")
     return str(Chem.CanonSmiles(largest_mol(smi)))
 
 
 def query2cas(query: str, url_cid: str, url_data: str):
+    query = normalize_molecule_input(query)
     try:
         mode = "name"
         if is_smiles(query):
@@ -118,6 +133,7 @@ def query2cas(query: str, url_cid: str, url_data: str):
 def smiles2name(smi, single_name=True):
     """This function queries the given molecule smiles and returns a name record or iupac"""
 
+    smi = normalize_molecule_input(smi)
     try:
         smi = Chem.MolToSmiles(Chem.MolFromSmiles(smi), canonical=True)
     except Exception:

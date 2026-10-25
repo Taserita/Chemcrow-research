@@ -1,16 +1,13 @@
 from typing import Any, Dict, List, Optional
 
 from langchain.callbacks.streamlit.streamlit_callback_handler import (
-    CHECKMARK_EMOJI,
-    EXCEPTION_EMOJI,
-    THINKING_EMOJI,
     LLMThought,
     LLMThoughtLabeler,
     LLMThoughtState,
     StreamlitCallbackHandler,
     ToolRecord,
 )
-from langchain_core.schema import AgentAction, AgentFinish, LLMResult
+from langchain.schema import AgentFinish
 from streamlit.delta_generator import DeltaGenerator
 
 from chemcrow.utils import is_smiles
@@ -46,7 +43,7 @@ class LLMThoughtChem(LLMThought):
     ) -> None:
         # Depending on the tool name, decide what to display.
         if serialized["name"] == "Name2SMILES":
-            safe_smiles = output.replace("[", "\[").replace("]", "\]")
+            safe_smiles = output.replace("[", r"\[").replace("]", r"\]")
             if is_smiles(output):
                 self._container.markdown(
                     f"**{safe_smiles}**{cdk(output)}", unsafe_allow_html=True
@@ -54,13 +51,13 @@ class LLMThoughtChem(LLMThought):
 
         if serialized["name"] == "ReactionPredict":
             rxn = f"{input_tool}>>{output}"
-            safe_smiles = rxn.replace("[", "\[").replace("]", "\]")
+            safe_smiles = rxn.replace("[", r"\[").replace("]", r"\]")
             self._container.markdown(
                 f"**{safe_smiles}**{cdk(rxn)}", unsafe_allow_html=True
             )
 
         if serialized["name"] == "ReactionRetrosynthesis":
-            output = output.replace("[", "\[").replace("]", "\]")
+            output = output.replace("[", r"\[").replace("]", r"\]")
 
     def on_tool_start(
         self, serialized: Dict[str, Any], input_str: str, **kwargs: Any
@@ -73,8 +70,8 @@ class LLMThoughtChem(LLMThought):
         self._container.update(
             new_label=(
                 self._labeler.get_tool_label(self._last_tool, is_complete=False)
-                .replace("[", "\[")
-                .replace("]", "\]")
+                .replace("[", r"\[")
+                .replace("]", r"\]")
             )
         )
 
@@ -96,7 +93,7 @@ class LLMThoughtChem(LLMThought):
             )
         self._state = LLMThoughtState.COMPLETE
 
-        final_label = final_label.replace("[", "\[").replace("]", "\]")
+        final_label = final_label.replace("[", r"\[").replace("]", r"\]")
         if self._collapse_on_complete:
             self._container.update(new_label=final_label, new_expanded=False)
         else:
@@ -175,7 +172,7 @@ class StreamlitCallbackHandlerChem(StreamlitCallbackHandler):
         if self._current_thought is not None:
             self._current_thought.complete(
                 self._thought_labeler.get_final_agent_thought_label()
-                .replace("[", "\[")
-                .replace("]", "\]")
+                .replace("[", r"\[")
+                .replace("]", r"\]")
             )
             self._current_thought = None

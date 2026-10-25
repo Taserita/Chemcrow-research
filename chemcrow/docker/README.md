@@ -1,30 +1,20 @@
+# Optional local reaction services
 
-# Tools of organic chemistry
+The agent selects these clients with `--local-rxn`. Services must be configured
+and started separately; the agent never starts Docker.
 
-A docker container was prepared for each tool, which exposes an api for requests.
+| Tool | Default endpoint | Setup |
+| --- | --- | --- |
+| `ReactionPredict` | `http://localhost:8051/api/v1/run` | [Molecular Transformer](molecular-transformer/README.md) |
+| `ReactionRetrosynthesis` | `http://localhost:8052/api/v1/retrosynth` | [AiZynthFinder](aizynthfinder/README.md) |
 
-> docker run -d -p 8052:5000 doncamilom/rxnpred:latest
+Model weights, stock data and generated input/output files are not included in the
+Python package. Preserve their upstream licenses when obtaining them.
 
-Where 5000 is fixed, and 8082 is the port to be exposed.
+The source AiZynthFinder app in this tree exposes `/api/v1/run`, whereas the
+published image described in its README uses `/api/v1/retrosynth`. The client
+supports an explicit `endpoint` override for the older source app. Both accept a
+`target` field. Prediction accepts a `smiles` field.
 
-A request in curl can look like this
-
-> curl -X POST -H "Content-Type: application/json" -d '{"smiles": "O=C(OC(C)(C)C)c1ccc(C(=O)Nc2ccc(Cl)cc2)cc1"}' http://localhost:8082/api/v1/run
-
-Or in Python
-
-```python
-
-import json
-import requests
-
-def reaction_predict(reactants):
-    response = requests.post(
-        "http://localhost:8052/api/v1/run",
-        headers={"Content-Type": "application/json"},
-        data=json.dumps({"smiles": reactants})
-    )
-    return response.json()['product'][0]
-
-product = reaction_predict('CCOCCCCO.CC(=O)Cl')
-```
+The service READMEs retain historical verification notes; no service was started
+or retested during release cleanup. Tool registration is not a service health check.

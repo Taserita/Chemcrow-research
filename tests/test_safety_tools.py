@@ -1,11 +1,7 @@
 import pytest
-from dotenv import load_dotenv
 from langchain.chat_models import ChatOpenAI
 
 from chemcrow.tools.safety import ControlChemCheck, ExplosiveCheck, SafetySummary
-
-load_dotenv()
-
 
 @pytest.fixture
 def controlledchemcheck():
@@ -19,6 +15,7 @@ def test_controlchemcheck_controlled(controlledchemcheck):
     assert "appears in a list" in ans_smi
 
 
+@pytest.mark.integration
 def test_controlchemcheck_notsimilar(controlledchemcheck):
     acetone_smi = "CC(=O)C"
     acetone_cas = "67-64-1"
@@ -53,6 +50,7 @@ def explosive():
     return ExplosiveCheck()
 
 
+@pytest.mark.integration
 def test_explosive_check_exp(explosive):
     tnt_cas = "118-96-7"
     ans = explosive(tnt_cas)
@@ -60,6 +58,7 @@ def test_explosive_check_exp(explosive):
     assert ans == "Molecule is explosive"
 
 
+@pytest.mark.integration
 def test_explosive_check_nonexp(explosive):
     non_exp_cas = "10025-87-3"
     ans = explosive(non_exp_cas)

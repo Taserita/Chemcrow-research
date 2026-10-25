@@ -1,11 +1,7 @@
 import re
-import urllib
-from time import sleep
+from importlib.resources import files
 
-import langchain
-import molbloom
 import pandas as pd
-import pkg_resources
 import requests
 import tiktoken
 from langchain import LLMChain, PromptTemplate
@@ -17,17 +13,14 @@ from chemcrow.utils import is_smiles, pubchem_query2smiles, tanimoto
 from .prompts import safety_summary_prompt, summary_each_data
 
 
+def _controlled_chemicals():
+    """Read the bundled reference table without requiring setuptools at runtime."""
+    with files("chemcrow").joinpath("data/chem_wep_smi.csv").open(encoding="utf-8") as stream:
+        return pd.read_csv(stream)
+
+
 class MoleculeSafety:
     def __init__(self, llm: BaseLLM = None):
-        while True:
-            try:
-                self.clintox = pd.read_csv(
-                    "https://deepchemdata.s3-us-west-1.amazonaws.com/datasets/clintox.csv.gz"
-                )
-                break
-            except (ConnectionRefusedError, urllib.error.URLError):
-                sleep(5)
-                continue
         self.pubchem_data = {}
         self.llm = llm
 
@@ -52,7 +45,7 @@ class MoleculeSafety:
             return "Molecule not found in Pubchem."
         try:
             for section in data["Record"]["Section"]:
-                if section.get("TOCHeading") == "Chemical Safety":
+                if section.get("TOCHeading") in ("Chemical Safety", "Primary Hazards"):
                     ghs = [
                         markup["Extra"]
                         for markup in section["Information"][0]["Value"][
@@ -229,8 +222,7 @@ class SimilarControlChemCheck(BaseTool):
         """Checks max similarity between compound and controlled chemicals.
         Input SMILES string."""
 
-        data_path = pkg_resources.resource_filename("chemcrow", "data/chem_wep_smi.csv")
-        cw_df = pd.read_csv(data_path)
+        cw_df = _controlled_chemicals()
 
         try:
             if not is_smiles(smiles):
@@ -269,8 +261,7 @@ class ControlChemCheck(BaseTool):
 
     def _run(self, query: str) -> str:
         """Checks if compound is a controlled chemical. Input CAS number."""
-        data_path = pkg_resources.resource_filename("chemcrow", "data/chem_wep_smi.csv")
-        cw_df = pd.read_csv(data_path)
+        cw_df = _controlled_chemicals()
         try:
             if is_smiles(query):
                 query_esc = re.escape(query)
@@ -284,7 +275,7 @@ class ControlChemCheck(BaseTool):
                 found = (
                     cw_df["cas"]
                     .astype(str)
-                    .str.contains(f"^\({query}\)$", regex=True)
+                    .str.contains(rf"^\({query}\)$", regex=True)
                     .any()
                 )
             if found:

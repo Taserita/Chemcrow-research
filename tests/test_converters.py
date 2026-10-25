@@ -23,30 +23,35 @@ def single_iupac():
     return "4-(4-hydroxyphenyl)butan-2-one"
 
 
+@pytest.mark.integration
 def test_q2cas_iupac(single_iupac):
     tool = Query2CAS()
     out = tool._run(single_iupac)
     assert out == "5471-51-2"
 
 
+@pytest.mark.integration
 def test_q2cas_cafeine(singlemol):
     tool = Query2CAS()
     out = tool._run(singlemol)
     assert out == "58-08-2"
 
 
+@pytest.mark.integration
 def test_q2cas_badinp():
     tool = Query2CAS()
     out = tool._run("nomol")
     assert out.endswith("no Pubchem entry") or out.endswith("not found")
 
 
+@pytest.mark.integration
 def test_q2s_iupac(single_iupac):
     tool = Query2SMILES()
     out = tool._run(single_iupac)
     assert out == "CC(=O)CCc1ccc(O)cc1"
 
 
+@pytest.mark.integration
 def test_q2s_cafeine(singlemol):
     tool = Query2SMILES()
     out = tool._run("caffeine")
@@ -64,6 +69,7 @@ def test_getmolprice_no_api():
     price = tool._run("caffeine")
     assert "No Chemspace API key found" in price
 
+@pytest.mark.integration
 def test_getmolprice(singlemol):
     if os.getenv("CHEMSPACE_API_KEY") is None:
         pytest.skip("No Chemspace API key found")
@@ -73,6 +79,7 @@ def test_getmolprice(singlemol):
         assert "of this molecule cost" in price
 
 
+@pytest.mark.integration
 def test_query2smiles_chemspace(singlemol, single_iupac):
     if os.getenv("CHEMSPACE_API_KEY") is None:
         pytest.skip("No Chemspace API key found")
@@ -88,6 +95,7 @@ def test_query2smiles_chemspace(singlemol, single_iupac):
         assert "of this molecule cost" in price
 
 
+@pytest.mark.integration
 def test_smiles2name():
     smiles2name = SMILES2Name()
     assert (

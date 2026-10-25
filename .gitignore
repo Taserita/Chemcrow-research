@@ -131,6 +131,7 @@ dmypy.json
 local/
 *ipynb
 query/
+research_outputs/
 
 # Models in docker directory
 **/docker/molecular-transformer/*txt
@@ -138,3 +139,23 @@ query/
 *onnx
 **/docker/*/files/*csv.gz
 **/docker/*/files/*hdf5
+
+# Private research inputs and generated artifacts (keep local copies)
+.env.*
+!.env.example
+local_papers/
+papers/
+runs/
+*.pdf
+*.PDF
+*.part
+*.tmp
+*.bak
+*.swp
+*~
+.DS_Store
+.idea/
+.vscode/
+credentials*.json
+secrets*.json
+chemcrow/docker/aizynthfinder/trees.json

@@ -1,5 +1,6 @@
 from langchain.tools import BaseTool
 
+from chemcrow.input_utils import normalize_molecule_input
 from chemcrow.tools.chemspace import ChemSpace
 from chemcrow.tools.safety import ControlChemCheck
 from chemcrow.utils import (
@@ -31,6 +32,7 @@ class Query2CAS(BaseTool):
 
     def _run(self, query: str) -> str:
         try:
+            query = normalize_molecule_input(query)
             # if query is smiles
             smiles = None
             if is_smiles(query):
@@ -49,8 +51,8 @@ class Query2CAS(BaseTool):
             if "high similarity" in msg or "appears" in msg:
                 return f"CAS number {cas}found, but " + msg
             return cas
-        except ValueError:
-            return "CAS number not found"
+        except ValueError as exc:
+            return str(exc)
 
     async def _arun(self, query: str) -> str:
         """Use the tool asynchronously."""
@@ -59,7 +61,11 @@ class Query2CAS(BaseTool):
 
 class Query2SMILES(BaseTool):
     name = "Name2SMILES"
-    description = "Input a molecule name, returns SMILES."
+    description = (
+        "Input one specific compound name as plain text, returns SMILES. "
+        "Resolve generic chemical classes (e.g. heteropoly acid) to the exact "
+        "compound in the source first. Do not provide JSON or multiple names."
+    )
     url: str = None
     chemspace_api_key: str = None
     ControlChemCheck = ControlChemCheck()
@@ -72,6 +78,10 @@ class Query2SMILES(BaseTool):
     def _run(self, query: str) -> str:
         """This function queries the given molecule name and returns a SMILES string from the record"""
         """Useful to get the SMILES string of one molecule by searching the name of a molecule. Only query with one specific name."""
+        try:
+            query = normalize_molecule_input(query)
+        except ValueError as e:
+            return str(e)
         if is_smiles(query) and is_multiple_smiles(query):
             return "Multiple SMILES strings detected, input one molecule at a time."
         try:
@@ -87,6 +97,12 @@ class Query2SMILES(BaseTool):
             else:
                 return str(e)
 
+        # Lookup/fallback responses must be structures before safety analysis.
+        if not is_smiles(smi):
+            return (
+                "Could not resolve a valid molecular structure. Find the exact compound "
+                "name or CAS number in the evidence; do not use this message as SMILES."
+            )
         # check if mol is controlled
         msg = "Note: " + self.ControlChemCheck._run(smi)
         if "high similarity" in msg or "appears" in msg:
@@ -110,6 +126,7 @@ class SMILES2Name(BaseTool):
     def _run(self, query: str) -> str:
         """Use the tool."""
         try:
+            query = normalize_molecule_input(query)
             if not is_smiles(query):
                 try:
                     query = self.query2smiles.run(query)
