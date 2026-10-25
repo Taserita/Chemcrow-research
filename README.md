@@ -1,198 +1,262 @@
-# ChemCrow research pipeline
+# ChemCrow research agent
 
-ChemCrow combines an LLM agent with chemistry tools and literature retrieval.
-This research checkout adds local PDF and Semantic Scholar research, structured
-evidence with source provenance, and evidence-grounded solution design to the
-original ChemCrow toolset.
+ChemCrow connects literature research, evidence extraction, solution design, and
+chemistry tools in one LLM agent. This repository extends the original ChemCrow
+with local PDF retrieval, Semantic Scholar discovery, and saved research evidence
+and evaluation plans.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="assets/chemcrow_dark_bold.png">
   <img alt="ChemCrow logo" src="assets/chemcrow_light_bold.png" width="100%">
 </picture>
 
-Features include molecular conversion and analysis, controlled-chemical and
-explosive checks, optional reaction prediction and retrosynthesis, and saved
-research evidence, solution plans, and actual agent observations.
+## 1. Install
 
-## Pipeline and implementation status
-
-| Stage | Implementation | Current connection |
-| --- | --- | --- |
-| Literature review | `ScientificResearch`, local PDFs, Semantic Scholar, PaperQA | Registered in the agent; model selects when to call it |
-| Evidence extraction | Findings and limitations with program-assigned source metadata | Runs within `ScientificResearch`; saves `evidence.json` |
-| Solution design | `SolutionDesign` and strict Pydantic schemas | Registered; consumes saved evidence and creates a pending evaluation plan |
-| Tool evaluation | Existing chemistry tools; independent `evaluation.evaluate_plan()` controller | Agent executes tools by model choice; controller is **not wired into the agent or CLI** |
-| Final assessment | Agent final response; separate controller assessment/report | Agent can finish early; completing every planned check is not enforced |
-
-The agent prompts describe the full scientific workflow and retain the existing
-chemical safety rules. With `--research`, only literature research and solution
-design are available; chemistry checks are deferred. A generated plan does not establish that checks ran or
-that a solution was validated. The standalone controller is preserved without
-adding new orchestration. See [research workflow and JSON contracts](docs/research.md).
-
-## Installation
-
-Install this checkout from the repository root; the upstream PyPI package does
-not include these local research changes. Python 3.9–3.11 is declared supported;
-this cleanup was validated with Python 3.10.
+Run the commands below from the root of your downloaded or cloned repository.
+Use Python 3.10; the package declares support for Python 3.9–3.11.
 
 ```bash
 python3.10 -m venv .venv
 source .venv/bin/activate
 python -m pip install --upgrade pip
 python -m pip install -e .
-python -m pip install -r dev-requirements.txt  # for tests and development
 ```
 
-Git is required to install the pinned `paper-scraper` revision. `setup.py` is the
-single runtime dependency definition. It preserves OpenAI 0.27.8 and PaperQA
-1.1.1, pins the tested LangChain 0.0.275 / rmrkl 0.0.3 stack, and declares directly
-imported dependencies. This is a legacy stack; do not upgrade its major components
-independently. The supplied dependency configuration is not a complete lockfile.
+Install this checkout to use its research features. Dependencies are defined in
+[setup.py](setup.py); Git is needed for the pinned `paper-scraper` dependency.
+The project uses the OpenAI 0.27.8, PaperQA 1.1.1, LangChain 0.0.275, and rmrkl
+0.0.3 stack. Keep these versions together when setting up the environment.
 
-## Configuration
+## 2. Configure your services and papers
 
-Copy `.env.example` to `.env` only if `.env` does not already exist, then fill in
-the services you use. `run_agent.py` loads `.env` beside the script. Shell variables
-take precedence. No credentials are included in the example.
-
-| Variable | Purpose |
-| --- | --- |
-| `OPENAI_API_KEY` | Required for the CLI agent, hosted helper LLM, and PDF embeddings |
-| `SEMANTIC_SCHOLAR_API_KEY` | Online paper discovery in combined research mode |
-| `SERP_API_KEY` | Optional SerpAPI web discovery and `WebSearch` tool |
-| `RXN4CHEM_API_KEY` | Optional remote reaction tools; requires a project ID too |
-| `RXN4CHEM_PROJECT_ID` | Your RXN project ID; no built-in project is used |
-| `CHEMSPACE_API_KEY` | Optional molecule prices and structure lookup fallback |
-| `RESEARCH_SOURCE_MODE` | `local` or `combined`; CLI and tool registry default to `local` |
-| `RESEARCH_PDF_DIR` | Optional nonrecursive directory of local PDFs |
-
-Leave unused variables unset; uncomment research settings only when supplying
-values. No key is needed for PubChem, Wikipedia, or
-molbloom catalog access, but these tools can still use the network or download data.
-
-## Run the agent
+Create `.env` from [.env.example](.env.example) if you do not already have one:
 
 ```bash
-python run_agent.py --help
-python run_agent.py "What is the exact molecular weight of ethanol?" \
-  --source-mode combined --model gpt-4.1-mini --max-iterations 10
+# Preserve any existing configuration.
+if [ ! -f .env ]; then cp .env.example .env; fi
+mkdir -p local_papers
 ```
 
-The CLI default is `gpt-4.1-mini`. Choose a model supported by the legacy client
-and available to your account. Python callers can use `ChemCrow` directly:
+Edit `.env` and fill in `OPENAI_API_KEY`. For a first run with local PDFs, this is
+the only required service key. Put your papers in `local_papers/`, or pass their
+paths directly with `--pdf`.
 
-```python
-from chemcrow.agents import ChemCrow
+| Setting | When to configure it |
+| --- | --- |
+| `OPENAI_API_KEY` | All CLI runs: agent, helper LLM, and PDF embeddings |
+| `SEMANTIC_SCHOLAR_API_KEY` | Online paper discovery with `--source-mode combined` |
+| `SERP_API_KEY` | Optional web discovery and the full-mode `WebSearch` tool |
+| `CHEMSPACE_API_KEY` | Optional molecule pricing and molecular-identifier lookup fallback |
+| `RXN4CHEM_API_KEY` + `RXN4CHEM_PROJECT_ID` | Optional remote reaction prediction and retrosynthesis; both are required |
+| `RESEARCH_SOURCE_MODE` | Default literature sources: `local` or `combined` |
+| `RESEARCH_PDF_DIR` | Default directory containing local PDFs; subdirectories are not searched |
 
-agent = ChemCrow(model="gpt-4.1-mini", tools_model="gpt-4.1-mini", streaming=False)
-answer = agent.run("What is the exact molecular weight of ethanol?")
-```
+The CLI loads `.env` beside `run_agent.py`; existing shell environment variables
+have priority. Leave unused service keys blank. `.env`, local PDFs, model weights,
+and generated results are ignored by Git; `.env.example` contains no credentials.
 
-## Research with local PDFs
+PDFs must contain extractable text and use a lowercase `.pdf` extension. Local
+source mode skips online paper discovery, but document text still goes to the
+configured hosted embeddings and LLMs.
 
-Place papers you are authorized to process in `local_papers/` (ignored by Git).
-PDFs need extractable text and a lowercase `.pdf` extension; OCR is not included.
+**Local reaction models are optional.** You can follow all routes below without
+installing them. Omit `--local-rxn`; remote reaction tools are available only if
+both RXN settings are configured. Other chemistry tools remain available in full
+mode. PubChem, Wikipedia, and patent-catalog access may use the network even
+without a service key.
+
+## 3. Choose a usage route
+
+Execution mode and literature source are independent:
+
+| Choice | What it controls |
+| --- | --- |
+| `--research` | Exposes only `ScientificResearch` and `SolutionDesign`; chemistry evaluation is deferred |
+| `--source-mode local` | Retrieves literature from your PDFs |
+| `--source-mode combined` | Adds online paper discovery; can also use your PDFs |
+
+Source selection follows `--source-mode`, then `RESEARCH_SOURCE_MODE`, then
+`local`. Local mode requires `--pdf`, `--pdf-dir`, or `RESEARCH_PDF_DIR`.
+
+### Route A: Research and design from local papers
+
+Start here to review papers and propose a solution without executing chemistry
+tools. Replace `study.pdf` with your paper and the quoted task with your question.
 
 ```bash
 python run_agent.py \
-  "Review the local papers with ScientificResearch, use SolutionDesign to propose a supported solution and evaluation plan, execute available checks, and report actual observations and limitations." \
-  --source-mode local --pdf-dir ./local_papers \
-  --max-passages 6 --max-evaluation-steps 12 --max-iterations 20
+  "Use ScientificResearch to identify the stability limitations reported in this study. Use SolutionDesign to propose an evidence-grounded improvement and a plan for later evaluation. Cite the evidence and explain unresolved questions." \
+  --research \
+  --source-mode local \
+  --pdf ./local_papers/study.pdf \
+  --max-passages 6 \
+  --max-evaluation-steps 12 \
+  --max-iterations 20
 ```
 
-For literature research and solution design **without executing chemistry tools**:
+Use `--pdf-dir ./local_papers` instead of `--pdf` to read a directory, or repeat
+`--pdf` to select several files.
+
+The intended sequence is:
+
+```text
+Your question + PDFs
+    → ScientificResearch: retrieve passages and extract source-linked evidence
+    → SolutionDesign: propose a solution and pending evaluation plan
+    → Final answer: explain the proposal, sources, and unresolved checks
+```
+
+The plan may name chemistry tools for future use. Those tools cannot be executed
+by the research-mode agent, and the plan does not establish that evaluation ran.
+
+### Route B: Research using online literature
+
+Configure `SEMANTIC_SCHOLAR_API_KEY`, then select `combined`. Configure
+`SERP_API_KEY` as well if you want supplementary web discovery.
 
 ```bash
-python run_agent.py "Review this study and design an evidence-grounded solution and evaluation plan." \
-  --research --pdf ./local_papers/study.pdf --max-passages 4 --max-iterations 20
+python run_agent.py \
+  "Use ScientificResearch to investigate how surface passivation affects perovskite stability. Use SolutionDesign to propose a supported improvement and an evaluation plan. Cite sources and identify gaps." \
+  --research \
+  --source-mode combined \
+  --max-passages 6 \
+  --max-iterations 20
 ```
 
-Research mode exposes only `ScientificResearch` and `SolutionDesign` to the agent.
-Its planner can describe later chemistry checks, but those checks are not executed
-in this run. The model still chooses its tool calls; completing both stages is not
-guaranteed. Retrieval alone remains available through the Python
-`local_literature_search()` API.
+The tool searches for candidate papers, screens relevance, attempts PDF downloads,
+retrieves passages, and extracts evidence. Add `--pdf-dir ./local_papers` to include
+local papers in the same research run. Unavailable papers and retrieval failures
+are reported as limitations; local papers remain usable if online discovery fails.
 
-Source selection follows `--source-mode`, then `RESEARCH_SOURCE_MODE`, then `local`.
-Local mode requires `--pdf`, `--pdf-dir`, or `RESEARCH_PDF_DIR`.
-Repeat `--pdf` to select multiple files. Local source mode skips online paper
-search, but **still sends document text to hosted embeddings and LLMs**. Other
-agent tools retain their normal network behavior. Use `--source-mode combined`
-to add online discovery; local papers remain usable if that discovery fails.
+### Route C: Solve a task with the full toolset
 
-## Reaction services
+Omit `--research` to let the agent execute chemistry tools. For a literature-based
+task, explicitly request research, design, and evaluation:
 
-`--local-rxn` registers both local services: prediction on port 8051 and
-retrosynthesis on port 8052. Configure and start them separately using the
-[service documentation](chemcrow/docker/README.md). Registration does not check
-service health. Without this flag, remote reaction tools are registered only
-when both `RXN4CHEM_API_KEY` and `RXN4CHEM_PROJECT_ID` are configured.
-In research mode, reaction capabilities appear only in the deferred evaluation
-catalog. The remote summary uses returned route information without adding
-unspecified solvents or conditions.
+```bash
+python run_agent.py \
+  "Use ScientificResearch to review the local papers for ways to improve molecular stability. Use SolutionDesign to propose a supported solution. Execute applicable checks with the available chemistry tools, compare actual observations with the proposal, and report unresolved checks." \
+  --source-mode local \
+  --pdf-dir ./local_papers \
+  --max-passages 6 \
+  --max-evaluation-steps 12 \
+  --max-iterations 30
+```
 
-## Saved results
+```text
+Question → literature evidence → solution and plan
+         → agent-selected chemistry tools → observations and final assessment
+```
 
-| Location | Contents |
+For a simple chemistry calculation, no literature workflow is necessary:
+
+```bash
+python run_agent.py \
+  "Calculate the molecular weight of ethanol, SMILES CCO." \
+  --source-mode combined \
+  --max-iterations 10
+```
+
+Here `combined` avoids the CLI's local-PDF requirement; it does not force a paper
+search. Tools are selected by the model. In both modes, the model can finish before
+all requested stages run. Full mode does not automatically execute every saved
+plan step. The separate [evaluation controller](chemcrow/evaluation.py) is a Python
+API, not connected automatically to this CLI; see [its usage](docs/research.md).
+
+### Common options
+
+| Option | Use |
 | --- | --- |
-| `research_outputs/<run>/` | Discovery, original passages, evidence, extraction audit, stage trace; downloaded PDFs and selection/screening audits in combined mode |
-| `research_outputs/solution_<run>/` | Solution plan, evidence snapshot, tool catalog, generation audit, trace |
-| `runs/<timestamp>.json` | Agent tool inputs, actual observations, model output, final answer, call counts |
-| `<solution-dir>/evaluation_<run>/` | Independent controller output, only when `evaluate_plan()` is called explicitly |
+| `--model` | Agent and helper model; default `gpt-4.1-mini`. Use a model available to your account and compatible with the installed client |
+| `--max-iterations` | Outer agent iteration limit; default 10. Research tools may make multiple internal calls per iteration |
+| `--max-passages` | Retrieved passages per research call; 1–20, default 6 |
+| `--max-evaluation-steps` | Maximum checks in the generated plan; 1–30, default 12. Does not execute the plan |
+| `--trace` | A new JSON file for the agent trace; the file must not already exist |
+| `--local-rxn` | Registers local reaction services on ports 8051/8052; use only after setting up those services |
 
-`--trace new-file.json` overrides the CLI trace location and refuses to overwrite
-an existing file. Agent traces include `research_only` and `source_mode`.
-Evidence retains its six-field summary format and older evidence
-files remain readable. Artifact schemas and paths are detailed in
+Run `python run_agent.py --help` for the full argument list. Local reaction service
+setup is documented separately in [chemcrow/docker/README.md](chemcrow/docker/README.md).
+In research mode, selecting local reactions adds them only to the deferred plan's
+capability catalog.
+
+## 4. Read the results
+
+The terminal prints the final answer, trace location, and counts of research and
+solution-design calls. Files are created for the stages that actually run:
+
+| File | What to read it for |
+| --- | --- |
+| `runs/<timestamp>.json` | Final answer, selected mode, available tools, actual tool inputs and observations, and call counts |
+| `research_outputs/<run>/evidence.json` | Findings and source-reported limitations with titles, URLs, and page references |
+| `research_outputs/<run>/literature_search.json` | Original retrieved passages supporting the evidence |
+| `research_outputs/<run>/literature_selection.json` | Online paper selection and download outcomes, when applicable |
+| `research_outputs/solution_<run>/solution_design.json` | Proposed solution, evidence references, pending evaluation steps, and unresolved checks |
+| `research_outputs/solution_<run>/available_tools.json` | Tool capabilities used to generate that plan |
+
+Start with the final answer and agent trace, then follow the returned evidence and
+solution paths to inspect sources and planned checks. A saved plan remains a
+planning artifact; actual agent tool observations are in `runs/`. Computational
+predictions are not experimental measurements. Detailed JSON contracts are in
 [docs/research.md](docs/research.md).
 
-Outputs can contain research text, questions, absolute paths and `file://` URIs.
-Keep them private unless separately reviewed and sanitized. `.gitignore` excludes
-these outputs, credentials, local PDFs, caches, environments, and model weights.
+## 5. Where to modify the agent and tools
 
-## Validation
+### Agent behavior and tool registration
 
-```bash
-python -m pytest -q
-python run_agent.py --help
-```
+| What you want to change | Edit here |
+| --- | --- |
+| CLI options, model default, PDF inputs, per-run limits, trace fields | [run_agent.py](run_agent.py), `main()` |
+| Available tools, optional-service conditions, research/full mode catalogs | [chemcrow/agents/tools.py](chemcrow/agents/tools.py), `make_tools()` |
+| Agent construction, model selection, executor configuration | [chemcrow/agents/chemcrow.py](chemcrow/agents/chemcrow.py), `ChemCrow` and `_make_llm()` |
+| Full-mode reasoning and safety instructions | [chemcrow/agents/prompts.py](chemcrow/agents/prompts.py), `QUESTION_PROMPT` |
+| Research-and-design-only instructions | [chemcrow/agents/prompts.py](chemcrow/agents/prompts.py), `RESEARCH_QUESTION_PROMPT` |
+| Parsing model actions and final answers | [chemcrow/agents/output_parser.py](chemcrow/agents/output_parser.py) |
+| Runtime dependencies or service-setting template | [setup.py](setup.py) and [.env.example](.env.example) |
 
-Only the five original ChemCrow test files are retained. Default pytest settings
-exclude tests marked `integration`; there is no repository-wide network blocker.
-The removed research regression and temporary validation tests are not part of CI.
-To intentionally run network-dependent tests with configured services:
+### Tool implementations
 
-```bash
-python -m pytest -o addopts='' -m integration
-```
+The first column uses the names the agent sees. Some differ from their Python
+class names. Edit a tool's `description` to change its usage guidance, and `_run()`
+and its helper functions to change execution.
 
-Integration credentials must be supplied through the environment; tests do not
-load `.env`. Existing explicitly skipped hosted-LLM tests remain skipped.
-See [the cleanup and release report](RELEASE_REVIEW.md) for actual validation results.
+| Tool name | Implementation and modification point |
+| --- | --- |
+| `ScientificResearch` | [tools/research.py](chemcrow/tools/research.py): `load_local_papers()`, `retrieve_evidence()`, `build_evidence()`, and `scientific_research()` control PDF loading, passage retrieval, evidence extraction, and saved outputs; `ScientificResearch` holds tool settings and description |
+| `SolutionDesign` | [tools/solution.py](chemcrow/tools/solution.py): `design_solution()` controls generation; schema classes and `_validate_design()` define valid plans; `tool_catalog()` defines the planner's capability list |
+| `Name2SMILES`, `Mol2CAS`, `SMILES2Name` | [tools/converters.py](chemcrow/tools/converters.py): `Query2SMILES`, `Query2CAS`, and `SMILES2Name`; shared molecular/PubChem helpers are in [utils.py](chemcrow/utils.py) |
+| `SMILES2Weight`, `MolSimilarity`, `FunctionalGroups` | [tools/rdkit.py](chemcrow/tools/rdkit.py): `SMILES2Weight`, `MolSimilarity`, and `FuncGroups` |
+| `ControlChemCheck`, `SimilarityToControlChem`, `ExplosiveCheck`, `SafetySummary` | [tools/safety.py](chemcrow/tools/safety.py): tool classes and `MoleculeSafety`; summary prompts are in [tools/prompts.py](chemcrow/tools/prompts.py), and the runtime controlled-chemical table is [data/chem_wep_smi.csv](chemcrow/data/chem_wep_smi.csv) |
+| `PatentCheck`, `WebSearch` | [tools/search.py](chemcrow/tools/search.py): corresponding classes and search helpers |
+| `GetMoleculePrice` | [tools/chemspace.py](chemcrow/tools/chemspace.py): `GetMoleculePrice` and the `ChemSpace` client |
+| `ReactionPredict`, `ReactionRetrosynthesis` — remote | [tools/rxn4chem.py](chemcrow/tools/rxn4chem.py): `RXNPredict`, `RXNRetrosynthesis`, and shared RXN client configuration |
+| `ReactionPredict`, `ReactionRetrosynthesis` — local, optional | [tools/reactions.py](chemcrow/tools/reactions.py): `RXNPredictLocal` and `RXNRetrosynthesisLocal`; service implementations live under [docker/](chemcrow/docker/README.md) |
+| `Python_REPL`, `Wikipedia` | Loaded from LangChain in [agents/tools.py](chemcrow/agents/tools.py); change registration there rather than editing an installed dependency |
 
-## Limitations and release review
+### Literature backend and evaluation helpers
 
-- Research, planning, and final interpretation depend on model output. Provenance
-  validation checks source IDs and page ranges, not scientific entailment.
-- The main agent may stop before every planned check. Only explicitly invoking the
-  separate POSIX controller provides its execution accounting and bounded retries.
-- Predictions do not establish experimental success, yield, purity, or safety.
-  The original safety checks are preserved and are not a comprehensive hazard assessment.
-- Online papers can be inaccessible or lack usable text; relevance screening is
-  model-based and retrieval budgets limit coverage.
-- Legacy helpers include broad exception handling and some unbounded HTTP calls.
-  The standalone evaluation controller does not change the main agent's timeouts.
-- Live APIs and Docker services were not exercised during cleanup. Fresh installation
-  on all supported Python versions still needs validation.
-- This checkout does not contain every tool from the original paper and does not
-  reproduce all of its published results. Original experiments are available in
-  [ChemCrow runs](https://github.com/ur-whitelab/chemcrow-runs).
+| Area | Edit here |
+| --- | --- |
+| Search-query generation, relevance-screening prompts, paper selection | [research_retrieval.py](chemcrow/research_retrieval.py) |
+| Semantic Scholar requests, rate limits, retries, metadata cache | [semantic_scholar.py](chemcrow/semantic_scholar.py) |
+| PDF downloads, timeouts, response validation | [paper_download.py](chemcrow/paper_download.py) |
+| paper-scraper compatibility and PMC URL handling | [paperscraper_compat.py](chemcrow/paperscraper_compat.py) |
+| Standalone plan execution, input checks, retries, assessments | [evaluation.py](chemcrow/evaluation.py), `evaluate_plan()` |
 
-The upstream PyPI publishing workflow is archived as
-`.github/workflows/build.yml.disabled`, so creating a GitHub release does not
-activate it. Publishing this fork to PyPI would require a separate package name
-and dependency review.
+`LiteratureSearch` in `tools/search.py` and `GenerateResearchQuestions` in
+[tools/hypothesis.py](chemcrow/tools/hypothesis.py) are legacy APIs, not registered
+in the current agent. `hypothesis.py` also supplies evidence loading used by
+solution design and evaluation.
+
+When adding a tool, implement its name, description, and `_run()` in
+`chemcrow/tools/`, then register it in `make_tools()`. Chemistry capabilities shared
+with deferred research plans belong in `evaluation_tools`; tools exposed only in
+full mode belong in that branch. Keep the research executor restricted to
+`ScientificResearch` and `SolutionDesign`. If you rename a tool, update its
+registration and any consumers of saved plans that use the old name.
+
+For development, install `dev-requirements.txt` and run `python -m pytest -q`.
+The repository retains the five original ChemCrow test files; external integration
+tests are excluded by default.
 
 ## Attribution
 Bran, Andres M., et al. "ChemCrow: Augmenting large-language models with chemistry tools." arXiv preprint arXiv:2304.05376 (2023).
