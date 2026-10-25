@@ -255,8 +255,6 @@ full mode belong in that branch. Keep the research executor restricted to
 registration and any consumers of saved plans that use the old name.
 
 For development, install `dev-requirements.txt` and run `python -m pytest -q`.
-The repository retains the five original ChemCrow test files; external integration
-tests are excluded by default.
 
 ## Attribution
 Bran, Andres M., et al. "ChemCrow: Augmenting large-language models with chemistry tools." arXiv preprint arXiv:2304.05376 (2023).
